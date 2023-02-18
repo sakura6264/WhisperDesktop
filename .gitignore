@@ -1,0 +1,8 @@
+.vs/
+ComLightLib/x64/
+Whisper/x64/
+x64/
+Whisper/Examples/WhisperDesktop/x64/
+*.aps
+*.json
+*.user
