@@ -24,6 +24,8 @@ static const LPCTSTR regValOutFormat = L"resultFormat";
 static const LPCTSTR regValOutPath = L"resultPath";
 static const LPCTSTR regValUseInputFolder = L"useInputFolder";
 
+
+
 LRESULT TranscribeDlg::OnInitDialog( UINT nMessage, WPARAM wParam, LPARAM lParam, BOOL& bHandled )
 {
 	// First DDX call, hooks up variables to controls.
@@ -121,6 +123,13 @@ enum struct TranscribeDlg::eOutputFormat : uint8_t
 	TextTimestamps = 2,
 	SubRip = 3,
 	WebVTT = 4,
+};
+
+enum struct TranscribeDlg::eVisualState : uint8_t
+{
+	Idle = 0,
+	Running = 1,
+	Stopping = 2
 };
 
 // CBN_SELCHANGE notification for IDC_OUTPUT_FORMAT combobox
@@ -261,6 +270,15 @@ void TranscribeDlg::transcribeError( LPCTSTR text, HRESULT hr )
 
 void TranscribeDlg::onTranscribe()
 {
+	switch (transcribeArgs.visualState)
+	{
+	case eVisualState::Running:
+		transcribeArgs.visualState = eVisualState::Stopping;
+		transcribeButton.EnableWindow(FALSE);
+		return;
+	case eVisualState::Stopping:
+		return;
+	}
 	// Validate input
 	sourceMediaPath.GetWindowText( transcribeArgs.pathMedia );
 	if( transcribeArgs.pathMedia.GetLength() <= 0 )
@@ -289,7 +307,8 @@ void TranscribeDlg::onTranscribe()
 	appState.stringStore( regValInput, transcribeArgs.pathMedia );
 
 	setPending( true );
-
+	transcribeArgs.visualState = eVisualState::Running;
+	transcribeButton.SetWindowText(L"Stop");
 	work.post();
 }
 
@@ -320,6 +339,11 @@ static void printTime( CString& rdi, int64_t ticks )
 LRESULT TranscribeDlg::onCallbackStatus( UINT, WPARAM wParam, LPARAM, BOOL& bHandled )
 {
 	setPending( false );
+	transcribeButton.SetWindowText(L"Transcribe");
+	transcribeButton.EnableWindow(TRUE);
+	const bool prematurely = (transcribeArgs.visualState == eVisualState::Stopping);
+	transcribeArgs.visualState = eVisualState::Idle;
+
 	const HRESULT hr = (HRESULT)wParam;
 	if( FAILED( hr ) )
 	{
@@ -387,6 +411,8 @@ HRESULT TranscribeDlg::transcribe()
 
 	fullParams.new_segment_callback_user_data = this;
 	fullParams.new_segment_callback = &newSegmentCallbackStatic;
+	fullParams.encoder_begin_callback = &encoderBeginCallback;
+	fullParams.encoder_begin_callback_user_data = this;
 
 	// Setup the progress indication sink
 	sProgressSink progressSink{ &progressCallbackStatic, this };
@@ -414,12 +440,16 @@ HRESULT TranscribeDlg::transcribe()
 	{
 	case eOutputFormat::Text:
 		lr = writeTextFile( segments, len.countSegments, *outputFile, false );
+		break;
 	case eOutputFormat::TextTimestamps:
 		lr = writeTextFile( segments, len.countSegments, *outputFile, true );
+		break;
 	case eOutputFormat::SubRip:
 		lr = writeSubRip( segments, len.countSegments, *outputFile );
+		break;
 	case eOutputFormat::WebVTT:
 		lr = writeWebVTT( segments, len.countSegments, *outputFile );
+		break;
 	default:
 		lr = E_FAIL;
 	}
@@ -552,6 +582,22 @@ HRESULT __cdecl TranscribeDlg::newSegmentCallbackStatic( Whisper::iContext* ctx,
 {
 	TranscribeDlg* dlg = (TranscribeDlg*)user_data;
 	return dlg->newSegmentCallback( ctx, n_new );
+}
+HRESULT __cdecl TranscribeDlg::encoderBeginCallback(Whisper::iContext* ctx, void* user_data) noexcept
+{
+	TranscribeDlg* dlg = (TranscribeDlg*)user_data;
+	const eVisualState visualState = dlg->transcribeArgs.visualState;
+	switch (visualState)
+	{
+	case eVisualState::Idle:
+		return E_NOT_VALID_STATE;
+	case eVisualState::Running:
+		return S_OK;
+	case eVisualState::Stopping:
+		return S_FALSE;
+	default:
+		return E_UNEXPECTED;
+	}
 }
 
 void TranscribeDlg::onWmClose()

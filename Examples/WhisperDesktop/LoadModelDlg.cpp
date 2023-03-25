@@ -133,6 +133,30 @@ LRESULT LoadModelDlg::OnOk( UINT, INT, HWND, BOOL& bHandled )
 	return 0;
 }
 
+static HRESULT loadModel(const wchar_t* path, Whisper::sModelSetup setup, const Whisper::sLoadModelCallbacks* callbacks, Whisper::iModel** pp)
+{
+	constexpr bool dbgTestClone = false;
+
+	if constexpr (dbgTestClone)
+		setup.flags |= (uint32_t)Whisper::eGpuModelFlags::Cloneable;
+
+	CComPtr<Whisper::iModel> res;
+	CHECK(Whisper::loadModel(path, setup, callbacks, &res));
+
+	if constexpr (dbgTestClone)
+	{
+		CComPtr<Whisper::iModel> clone;
+		CHECK(res->clone(&clone));
+		*pp = clone.Detach();
+		return S_OK;
+	}
+	else
+	{
+		*pp = res.Detach();
+		return S_OK;
+	}
+}
+
 void __stdcall LoadModelDlg::poolCallback() noexcept
 {
 	CComPtr<Whisper::iModel> model;
@@ -142,15 +166,21 @@ void __stdcall LoadModelDlg::poolCallback() noexcept
 	lmcb.cancel = nullptr;
 	lmcb.progress = &LoadModelDlg::progressCallback;
 	lmcb.pv = this;
-	const uint32_t flags = appState.gpuFlagsLoad();
-	HRESULT hr = Whisper::loadModel( path, impl, flags, &lmcb, &model );
-	if( SUCCEEDED( hr ) )
+	Whisper::sModelSetup setup;
+	setup.impl = impl;
+	setup.flags = appState.gpuFlagsLoad();
+	CString adapter = appState.stringLoad(L"gpu");
+	setup.adapter = adapter;
+	HRESULT hr = ::loadModel(path, setup, &lmcb, &model);
+	if (SUCCEEDED(hr))
 		appState.model = model;
 	else
-		getLastError( loadError );
+		getLastError(loadError);
 
-	this->PostMessage( WM_CALLBACK_STATUS, (WPARAM)hr );
+	this->PostMessage(WM_CALLBACK_STATUS, (WPARAM)hr);
 }
+
+
 
 HRESULT __stdcall LoadModelDlg::progressCallback( double val, void* pv ) noexcept
 {

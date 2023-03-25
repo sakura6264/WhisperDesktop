@@ -50,6 +50,7 @@ public:
 		DDX_CONTROL_HANDLE(IDC_BROWSE_RESULT, transcribeOutputBrowse)
 		DDX_CONTROL_HANDLE(IDC_TRANSCRIBE_PROGRESS, progressBar)
 		DDX_CONTROL_HANDLE(IDC_OUTPUTBOX, outputBox);
+		DDX_CONTROL_HANDLE(IDC_TRANSCRIBE, transcribeButton);
 	END_DDX_MAP()
 
 private:
@@ -79,6 +80,7 @@ private:
 	CEdit transcribeOutputPath;
 	CButton transcribeOutputBrowse;
 	CComboBox transcribeOutFormat;
+	CButton transcribeButton;
 	CProgressBarCtrl progressBar;
 	CEdit outputBox;
 	void populateOutputFormats();
@@ -96,6 +98,7 @@ private:
 	ThreadPoolWork work;
 
 	enum struct eOutputFormat : uint8_t;
+	enum struct eVisualState : uint8_t;
 
 	struct TranscribeArgs
 	{
@@ -105,6 +108,7 @@ private:
 		bool translate;
 		eOutputFormat format;
 		Whisper::eResultFlags resultFlags;
+		volatile eVisualState visualState = (eVisualState)0;
 		uint64_t startTime;
 		int64_t mediaDuration;
 		CString errorMessage;
@@ -123,6 +127,7 @@ private:
 	static HRESULT writeWebVTT( const Whisper::sSegment* const segments, const size_t length, CStringA& file );
 
 	static HRESULT __cdecl newSegmentCallbackStatic( Whisper::iContext* ctx, uint32_t n_new, void* user_data ) noexcept;
+	static HRESULT __cdecl encoderBeginCallback(Whisper::iContext* ctx, void* user_data) noexcept;
 	HRESULT newSegmentCallback( Whisper::iContext* ctx, uint32_t n_new );
 
 	static HRESULT __cdecl progressCallbackStatic( double p, Whisper::iContext* ctx, void* pv ) noexcept;
